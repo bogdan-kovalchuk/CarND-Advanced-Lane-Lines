@@ -86,7 +86,7 @@ def hls_threshold(image, thresh=(0, 255)):
     return binary
 
 
-def pipeline(image, ksize, s_thresh, sx_thresh, sy_thresh, m_thresh, d_thresh):
+def apply_thresholds(image, ksize, s_thresh, sx_thresh, sy_thresh, m_thresh, d_thresh):
     image = np.copy(image)
 
     # Sobel threshold
@@ -100,40 +100,10 @@ def pipeline(image, ksize, s_thresh, sx_thresh, sy_thresh, m_thresh, d_thresh):
     dir_binary = dir_thresh(image, sobel_kernel=ksize, thresh=d_thresh)
 
     # S color channel threshold
-    s_binary = hls_threshold(img, thresh=s_thresh)
+    s_binary = hls_threshold(image, thresh=s_thresh)
 
     # Combined binary
     combined = np.zeros_like(dir_binary)
     combined[((sxbinary == 1) & (sybinary == 1)) | ((mag_binary == 1) & (dir_binary == 1)) | (s_binary == 1)] = 1
 
     return combined
-
-
-if __name__ == "__main__":
-    img = mpimg.imread('bridge_shadow.jpg')
-
-    # Choose a Sobel kernel size
-    ksize = 3  # Choose a larger odd number to smooth gradient measurements
-    s_thresh = (170, 255)
-    sx_thresh = (20, 100)
-    sy_thresh = (20, 255)
-    m_thresh = (30, 100)
-    d_thresh = (0.7, 1.3)
-
-    binary = pipeline(image=img,
-                      ksize=ksize,
-                      s_thresh=s_thresh,
-                      sx_thresh=sx_thresh,
-                      sy_thresh=sy_thresh,
-                      m_thresh=m_thresh,
-                      d_thresh=d_thresh)
-
-    # Plot the result
-    f, (ax1, ax2) = plt.subplots(1, 2, figsize=(24, 9))
-    f.tight_layout()
-    ax1.imshow(img)
-    ax1.set_title('Original Image', fontsize=50)
-    ax2.imshow(binary, cmap='gray')
-    ax2.set_title('Thresholded Grad. Dir.', fontsize=50)
-    plt.subplots_adjust(left=0., right=1, top=0.9, bottom=0.)
-    plt.show()
