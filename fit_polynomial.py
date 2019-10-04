@@ -118,18 +118,22 @@ class FitPolynomial:
 
         return leftx, lefty, rightx, righty
 
-    def fit_polynomial(self, left_fit=None, right_fit=None):
+    def fit_polynomial(self, left_fit_prev=None, right_fit_prev=None):
 
-        if left_fit is None and right_fit is None:
+        if left_fit_prev is None and right_fit_prev is None:
             leftx, lefty, rightx, righty = self._find_lane_pixels()
         else:
-            leftx, lefty, rightx, righty = self._search_around_poly(left_fit, right_fit)
+            leftx, lefty, rightx, righty = self._search_around_poly(left_fit_prev, right_fit_prev)
 
         left_fit = np.polyfit(lefty, leftx, 2)
         right_fit = np.polyfit(righty, rightx, 2)
 
         # Generate x and y values for plotting
         ploty = np.linspace(0, self.img_shape[0] - 1, self.img_shape[0])
+        detected = FitPolynomial.sanity_check(ploty, left_fit, right_fit)
+        if not detected:
+            left_fit, right_fit = left_fit_prev, right_fit_prev
+
         try:
             left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
             right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
@@ -139,28 +143,64 @@ class FitPolynomial:
             left_fitx = 1 * ploty ** 2 + 1 * ploty
             right_fitx = 1 * ploty ** 2 + 1 * ploty
 
-        return left_fitx, right_fitx, left_fit, right_fit, ploty
+        return left_fitx, right_fitx, left_fit, right_fit, ploty, detected
 
-    # def measure_real_curvature_(self, binary_warped):
-    #     """
-    #     Calculates the curvature of polynomial functions in meters.
-    #     """
-    #     # Define conversions in x and y from pixels space to meters
-    #     ym_per_pix = 30 / 720  # meters per pixel in y dimension
-    #     xm_per_pix = 3.7 / 700  # meters per pixel in x dimension
-    #
-    #     # Start by generating our fake example data
-    #     # Make sure to feed in your real data instead in your project!
-    #     ploty, left_fit_cr, right_fit_cr = fit_polynomial(binary_warped, ym_per_pix, xm_per_pix)
-    #
-    #     # Define y-value where we want radius of curvature
-    #     # We'll choose the maximum y-value, corresponding to the bottom of the image
-    #     y_eval = np.max(ploty)
-    #
-    #     # Calculation of R_curve (radius of curvature)
-    #     left_curverad = ((1 + (2 * left_fit_cr[0] * y_eval * ym_per_pix +
-    #                            left_fit_cr[1]) ** 2) ** 1.5) / np.absolute(2 * left_fit_cr[0])
-    #     right_curverad = ((1 + (2 * right_fit_cr[0] * y_eval * ym_per_pix +
-    #                             right_fit_cr[1]) ** 2) ** 1.5) / np.absolute(2 * right_fit_cr[0])
-    #
-    #     return left_curverad, right_curverad
+    @staticmethod
+    def measure_real_curvature(ploty, leftx, rightx):
+        """
+        Calculates the curvature of polynomial functions in meters.
+        """
+        # Define conversions in x and y from pixels space to meters
+        ym_per_pix = 30 / 720  # meters per pixel in y dimension
+        xm_per_pix = 3.7 / 700  # meters per pixel in x dimension
+
+        left_fit_cr = np.polyfit(ploty * ym_per_pix, leftx * xm_per_pix, 2)
+        right_fit_cr = np.polyfit(ploty * ym_per_pix, rightx * xm_per_pix, 2)
+
+        # Define y-value where we want radius of curvature
+        # We'll choose the maximum y-value, corresponding to the bottom of the image
+        y_eval = np.max(ploty)
+
+        # Calculation of R_curve (radius of curvature)
+        left_curverad = ((1 + (2 * left_fit_cr[0] * y_eval * ym_per_pix +
+                               left_fit_cr[1]) ** 2) ** 1.5) / np.absolute(2 * left_fit_cr[0])
+        right_curverad = ((1 + (2 * right_fit_cr[0] * y_eval * ym_per_pix +
+                                right_fit_cr[1]) ** 2) ** 1.5) / np.absolute(2 * right_fit_cr[0])
+
+        print(left_curverad, right_curverad)
+
+        return (left_curverad + right_curverad)/2
+
+    @staticmethod
+    def sanity_check(ploty, left_fit, right_fit):
+        detected = False
+        y_eval = np.max(ploty)
+        leftx = left_fit[0] * y_eval ** 2 + left_fit[1] * y_eval + left_fit[2]
+        rightx = right_fit[0] * y_eval ** 2 + right_fit[1] * y_eval + right_fit[2]
+        distance_lower = np.abs(rightx - leftx)
+        distance_upper = np.abs(right_fit[2] - left_fit[2])
+
+        # print('a/b = ', left_fit[0]/right_fit[0], left_fit[1]/right_fit[1], left_fit[2]/right_fit[2])
+        # print('a/b = ', left_fit[0] / right_fit[0], left_fit[1] / right_fit[1], left_fit[2] / right_fit[2])
+        print(distance_lower)
+        print(distance_upper)
+
+        if min(distance_lower, distance_upper)/max(distance_lower, distance_upper) > 0.9:
+            detected = True
+
+        return detected
+
+    @staticmethod
+    def offset(ploty, img_shape, left_fit, right_fit):
+        """
+        Compute vehicle offset from center
+        """
+        xm_per_pix = 3.7 / 700  # meters per pixel in x dimension
+        y_eval = np.max(ploty)
+
+        leftx = left_fit[0] * y_eval ** 2 + left_fit[1] * y_eval + left_fit[2]
+        rightx = right_fit[0] * y_eval ** 2 + right_fit[1] * y_eval + right_fit[2]
+        distance = rightx - leftx
+        posx = leftx + distance // 2
+
+        return (img_shape[1] // 2 - posx)*xm_per_pix
