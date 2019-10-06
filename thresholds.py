@@ -1,13 +1,15 @@
 import numpy as np
 import cv2
+import matplotlib.pyplot as plt
 
 
 class Thresholds:
-    def __init__(self, image):
+    def __init__(self, image, debug=False):
         self.image = np.copy(image)
         hls = cv2.cvtColor(self.image, cv2.COLOR_RGB2HLS)
         self.l_channel = hls[:, :, 1]
         self.s_channel = hls[:, :, 2]
+        self.debug = debug
 
     def apply_thresholds(self, ksize, s_thresh, sx_thresh, sy_thresh, m_thresh, d_thresh):
         """
@@ -29,6 +31,21 @@ class Thresholds:
         # Combined binary
         combined = np.zeros_like(dir_binary)
         combined[((sxbinary == 1) & (sybinary == 1)) | ((mag_binary == 1) & (dir_binary == 1)) | (s_binary == 1)] = 1
+
+        if self.debug:
+            def save_2figs(im1, title1, im2, title2, out_file):
+                f, (ax1, ax2) = plt.subplots(1, 2, figsize=(24, 9))
+                f.tight_layout()
+                ax1.imshow(im1, cmap='gray')
+                ax1.set_title(title1, fontsize=50)
+                ax2.imshow(im2, cmap='gray')
+                ax2.set_title(title2, fontsize=50)
+                plt.subplots_adjust(left=0., right=1, top=0.9, bottom=0.)
+                plt.savefig(out_file)
+
+            save_2figs(sxbinary, "1. Sobel threshold X", sybinary, "2. Sobel threshold Y", "writeup_images/sobelXY.png")
+            save_2figs(mag_binary, "3. Magnitude gradient", dir_binary, "4. Direction gradient", "writeup_images/magn_grad.png")
+            save_2figs(s_binary, "5. S color channel", combined, "6. Combined binary", "writeup_images/s_col_comb.png")
 
         return combined
 

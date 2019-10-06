@@ -1,7 +1,5 @@
 import os
 import cv2
-import numpy as np
-import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 from moviepy.editor import VideoFileClip
 
@@ -59,15 +57,15 @@ class LaneDetector:
         undist = cv2.undistort(image, mtx, dist, None, mtx)
 
         # Apply threshold
-        thresh = Thresholds(undist)
+        thresh = Thresholds(undist, self.debug)
         undist_binary = thresh.apply_thresholds(ksize=self.ksize, s_thresh=self.s_thresh, sx_thresh=self.sx_thresh,
                                                 sy_thresh=self.sy_thresh, m_thresh=self.m_thresh, d_thresh=self.d_thresh)
         # Warp binary image
-        transform = PerspectiveTransform(undist_binary)
+        transform = PerspectiveTransform(undist_binary, image, self.debug)
         binary_warped = transform.warp()
 
         # Find left and right lane markers polynomial
-        polyfit = FitPolynomial(binary_warped)
+        polyfit = FitPolynomial(binary_warped, self.debug)
         left_fit, right_fit = polyfit.fit_polynomial(left_fit_prev, right_fit_prev)
 
         # Warp image with lanes back
@@ -76,20 +74,6 @@ class LaneDetector:
         # Curvature and offset
         curvature = polyfit.curvature()
         offset = polyfit.offset()
-
-        if self.debug:
-            image_with_dst = image.copy()
-            cv2.polylines(image_with_dst, np.int32([transform.get_src()]), isClosed=True, color=(255, 0, 0), thickness=3)
-
-            self.plt = plt
-            f, (ax1, ax2) = plt.subplots(1, 2, figsize=(24, 9))
-            f.tight_layout()
-            ax1.imshow(image_with_dst, cmap='gray')
-            ax1.set_title('Original Image', fontsize=50)
-            ax2.imshow(binary_warped, cmap='gray')
-            ax2.set_title('Undistorted and Warped Image', fontsize=50)
-            self.plt.subplots_adjust(left=0., right=1, top=0.9, bottom=0.)
-            self.plt.show()
 
         return out_image, left_fit, right_fit, curvature, offset
 

@@ -1,9 +1,10 @@
 import numpy as np
 import cv2
+import matplotlib.pyplot as plt
 
 
 class PerspectiveTransform:
-    def __init__(self, undist_binary, debug=False):
+    def __init__(self, undist_binary, image, debug=False):
         self.undist_binary = undist_binary
         self.img_size = (self.undist_binary.shape[1], self.undist_binary.shape[0])
         self.warped = None
@@ -12,6 +13,8 @@ class PerspectiveTransform:
         self.dst = None
         self.src = None
         self.debug = debug
+        if self.debug:
+            self.image_for_debug = image
 
     def warp(self):
         """
@@ -23,6 +26,22 @@ class PerspectiveTransform:
         self.M = cv2.getPerspectiveTransform(self.src, self.dst)
         self.Minv = cv2.getPerspectiveTransform(self.dst, self.src)
         self.warped = cv2.warpPerspective(self.undist_binary, self.M, self.img_size, flags=cv2.INTER_LINEAR)
+
+        if self.debug:
+            image_with_src = self.image_for_debug.copy()
+            cv2.polylines(image_with_src, np.int32([self.get_src()]), isClosed=True, color=(255, 0, 0), thickness=3)
+
+            image_with_dst = cv2.warpPerspective(self.image_for_debug.copy(), self.M, self.img_size, flags=cv2.INTER_LINEAR)
+            cv2.polylines(image_with_dst, np.int32([self.get_dst()]), isClosed=True, color=(255, 0, 0), thickness=3)
+
+            f, (ax1, ax2) = plt.subplots(1, 2, figsize=(24, 9))
+            f.tight_layout()
+            ax1.imshow(image_with_src)
+            ax1.set_title('Undistorted image with src point', fontsize=50)
+            ax2.imshow(image_with_dst)
+            ax2.set_title('Warped results with dst points', fontsize=50)
+            plt.subplots_adjust(left=0., right=1, top=0.9, bottom=0.)
+            plt.savefig("writeup_images/warped_straight_lines.png")
 
         return self.warped
 
@@ -47,19 +66,20 @@ class PerspectiveTransform:
         # Warp the blank back to original image space using inverse perspective matrix (Minv)
         newwarp = cv2.warpPerspective(color_warp, self.Minv, (undist.shape[1], undist.shape[0]))
 
+        # Return the combined result with the original image
+        combined = cv2.addWeighted(undist, 1, newwarp, 0.3, 0)
+
         if self.debug:
-            import matplotlib.pyplot as plt
             f, (ax1, ax2) = plt.subplots(1, 2, figsize=(24, 9))
             f.tight_layout()
             ax1.imshow(newwarp)
-            ax1.set_title('Original Image', fontsize=50)
-            ax2.imshow(undist)
-            ax2.set_title('Undistorted and Warped Image', fontsize=50)
+            ax1.set_title('Lane area', fontsize=50)
+            ax2.imshow(combined)
+            ax2.set_title('Lane area on test image', fontsize=50)
             plt.subplots_adjust(left=0., right=1, top=0.9, bottom=0.)
-            plt.show()
+            plt.savefig("writeup_images/lane_area.png")
 
-        # Return the combined result with the original image
-        return cv2.addWeighted(undist, 1, newwarp, 0.3, 0)
+        return combined
 
     def _define_dst(self):
         # define dst 4 pints

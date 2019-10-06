@@ -1,6 +1,6 @@
 import numpy as np
 import cv2
-
+import matplotlib.pyplot as plt
 
 class FitPolynomial:
     def __init__(self, binary_warped, debug=None):
@@ -30,6 +30,18 @@ class FitPolynomial:
 
         self._define_plotting()
 
+        if self.debug:
+            self.out_img[lefty, leftx] = [255, 0, 0]
+            self.out_img[righty, rightx] = [0, 0, 255]
+
+            left_pts = np.stack([self.left_fitx, self.ploty]).T
+            right_pts = np.stack([self.right_fitx, self.ploty]).T
+
+            cv2.polylines(self.out_img, [np.int32(left_pts)], False, (0, 100, 0), 3)
+            cv2.polylines(self.out_img, [np.int32(right_pts)], False, (0, 100, 0), 3)
+
+            cv2.imwrite(filename="writeup_images/color_fit_lines.png", img=self.out_img)
+
         return self.left_fit, self.right_fit
 
     def curvature(self):
@@ -55,7 +67,6 @@ class FitPolynomial:
         """
         Compute vehicle offset from center
         """
-        xm_per_pix = 3.7 / 700  # meters per pixel in x dimension
         y_eval = np.max(self.ploty)
 
         leftx = self.left_fit[0] * y_eval ** 2 + self.left_fit[1] * y_eval + self.left_fit[2]
@@ -63,7 +74,7 @@ class FitPolynomial:
         distance = rightx - leftx
         posx = leftx + distance // 2
 
-        return (self.img_shape[1] // 2 - posx) * xm_per_pix
+        return (self.img_shape[1] // 2 - posx) * self.xm_per_pix
 
     def get_ploty(self):
         return self.ploty, self.left_fitx, self.right_fitx
@@ -73,6 +84,9 @@ class FitPolynomial:
         histogram = np.sum(self.binary_warped[self.binary_warped.shape[0] // 2:, :], axis=0)
         # Find the peak of the left and right halves of the histogram
         # These will be the starting point for the left and right lines
+        if self.debug:
+            # Create an output image to draw on and visualize the result
+            self.out_img = np.dstack((self.binary_warped, self.binary_warped, self.binary_warped)) * 255
         midpoint = np.int(histogram.shape[0] // 2)
         leftx_base = np.argmax(histogram[:midpoint])
         rightx_base = np.argmax(histogram[midpoint:]) + midpoint
@@ -112,15 +126,13 @@ class FitPolynomial:
             win_xright_high = rightx_current + margin
 
             if self.debug:
-                # Create an output image to draw on and visualize the result
-                out_img = np.dstack((self.binary_warped, self.binary_warped, self.binary_warped))
                 # Draw the windows on the visualization image
-                cv2.rectangle(out_img, (win_xleft_low, win_y_low),
+                cv2.rectangle(self.out_img, (win_xleft_low, win_y_low),
                               (win_xleft_high, win_y_high), (0, 255, 0), 2)
-                cv2.rectangle(out_img, (win_xright_low, win_y_low),
+                cv2.rectangle(self.out_img, (win_xright_low, win_y_low),
                               (win_xright_high, win_y_high), (0, 255, 0), 2)
 
-            # Identify the nonzero pixels in x and y within the window
+                # Identify the nonzero pixels in x and y within the window
             good_left_inds = ((nonzeroy >= win_y_low) & (nonzeroy < win_y_high) &
                               (nonzerox >= win_xleft_low) & (nonzerox < win_xleft_high)).nonzero()[0]
             good_right_inds = ((nonzeroy >= win_y_low) & (nonzeroy < win_y_high) &
