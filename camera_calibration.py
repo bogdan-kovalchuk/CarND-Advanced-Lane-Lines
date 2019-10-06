@@ -57,7 +57,3 @@ if __name__ == "__main__":
 
     calibration = CameraCalibration()
     calibration.prepare_undist_params(calibration_images, n, m, out_pickle)
-
-
-
-

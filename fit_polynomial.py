@@ -3,15 +3,74 @@ import cv2
 
 
 class FitPolynomial:
-    def __init__(self, binary_warped):
+    def __init__(self, binary_warped, debug=None):
+        self.debug = debug
         self.binary_warped = binary_warped
         self.img_shape = self.binary_warped.shape
+        self.left_fit = None
+        self.right_fit = None
+        self.ploty = None
+        self.left_fitx = None
+        self.right_fitx = None
+        # Define conversions in x and y from pixels space to meters
+        self.ym_per_pix = 30 / 720  # meters per pixel in y dimension
+        self.xm_per_pix = 3.7 / 700  # meters per pixel in x dimension
+
+    def fit_polynomial(self, left_fit_prev=None, right_fit_prev=None):
+        """
+        Fit lines pixels to polynomial
+        """
+        if left_fit_prev is None and right_fit_prev is None:
+            leftx, lefty, rightx, righty = self._find_lane_pixels()
+        else:
+            leftx, lefty, rightx, righty = self._search_around_poly(left_fit_prev, right_fit_prev)
+
+        self.left_fit = np.polyfit(lefty, leftx, 2)
+        self.right_fit = np.polyfit(righty, rightx, 2)
+
+        self._define_plotting()
+
+        return self.left_fit, self.right_fit
+
+    def curvature(self):
+        """
+        Calculates the curvature of polynomial functions in meters.
+        """
+        left_fit_cr = np.polyfit(self.ploty * self.ym_per_pix, self.left_fitx * self.xm_per_pix, 2)
+        right_fit_cr = np.polyfit(self.ploty * self.ym_per_pix, self.right_fitx * self.xm_per_pix, 2)
+
+        # Define y-value where we want radius of curvature
+        # We'll choose the maximum y-value, corresponding to the bottom of the image
+        y_eval = np.max(self.ploty)
+
+        # Calculation of R_curve (radius of curvature)
+        left_curverad = ((1 + (2 * left_fit_cr[0] * y_eval * self.ym_per_pix +
+                               left_fit_cr[1]) ** 2) ** 1.5) / np.absolute(2 * left_fit_cr[0])
+        right_curverad = ((1 + (2 * right_fit_cr[0] * y_eval * self.ym_per_pix +
+                                right_fit_cr[1]) ** 2) ** 1.5) / np.absolute(2 * right_fit_cr[0])
+
+        return (left_curverad + right_curverad) / 2
+
+    def offset(self):
+        """
+        Compute vehicle offset from center
+        """
+        xm_per_pix = 3.7 / 700  # meters per pixel in x dimension
+        y_eval = np.max(self.ploty)
+
+        leftx = self.left_fit[0] * y_eval ** 2 + self.left_fit[1] * y_eval + self.left_fit[2]
+        rightx = self.right_fit[0] * y_eval ** 2 + self.right_fit[1] * y_eval + self.right_fit[2]
+        distance = rightx - leftx
+        posx = leftx + distance // 2
+
+        return (self.img_shape[1] // 2 - posx) * xm_per_pix
+
+    def get_ploty(self):
+        return self.ploty, self.left_fitx, self.right_fitx
 
     def _find_lane_pixels(self):
         # Take a histogram of the bottom half of the image
         histogram = np.sum(self.binary_warped[self.binary_warped.shape[0] // 2:, :], axis=0)
-        # Create an output image to draw on and visualize the result
-        out_img = np.dstack((self.binary_warped, self.binary_warped, self.binary_warped))
         # Find the peak of the left and right halves of the histogram
         # These will be the starting point for the left and right lines
         midpoint = np.int(histogram.shape[0] // 2)
@@ -22,7 +81,7 @@ class FitPolynomial:
         # Choose the number of sliding windows
         nwindows = 9
         # Set the width of the windows +/- margin
-        margin = 100
+        margin = 80
         # Set minimum number of pixels found to recenter window
         minpix = 50
 
@@ -52,11 +111,14 @@ class FitPolynomial:
             win_xright_low = rightx_current - margin
             win_xright_high = rightx_current + margin
 
-            # Draw the windows on the visualization image
-            cv2.rectangle(out_img, (win_xleft_low, win_y_low),
-                          (win_xleft_high, win_y_high), (0, 255, 0), 2)
-            cv2.rectangle(out_img, (win_xright_low, win_y_low),
-                          (win_xright_high, win_y_high), (0, 255, 0), 2)
+            if self.debug:
+                # Create an output image to draw on and visualize the result
+                out_img = np.dstack((self.binary_warped, self.binary_warped, self.binary_warped))
+                # Draw the windows on the visualization image
+                cv2.rectangle(out_img, (win_xleft_low, win_y_low),
+                              (win_xleft_high, win_y_high), (0, 255, 0), 2)
+                cv2.rectangle(out_img, (win_xright_low, win_y_low),
+                              (win_xright_high, win_y_high), (0, 255, 0), 2)
 
             # Identify the nonzero pixels in x and y within the window
             good_left_inds = ((nonzeroy >= win_y_low) & (nonzeroy < win_y_high) &
@@ -94,7 +156,7 @@ class FitPolynomial:
         # HYPERPARAMETER
         # Choose the width of the margin around the previous polynomial to search
         # The quiz grader expects 100 here, but feel free to tune on your own!
-        margin = 100
+        margin = 80
 
         # Grab activated pixels
         nonzero = self.binary_warped.nonzero()
@@ -118,89 +180,14 @@ class FitPolynomial:
 
         return leftx, lefty, rightx, righty
 
-    def fit_polynomial(self, left_fit_prev=None, right_fit_prev=None):
-
-        if left_fit_prev is None and right_fit_prev is None:
-            leftx, lefty, rightx, righty = self._find_lane_pixels()
-        else:
-            leftx, lefty, rightx, righty = self._search_around_poly(left_fit_prev, right_fit_prev)
-
-        left_fit = np.polyfit(lefty, leftx, 2)
-        right_fit = np.polyfit(righty, rightx, 2)
-
+    def _define_plotting(self):
         # Generate x and y values for plotting
-        ploty = np.linspace(0, self.img_shape[0] - 1, self.img_shape[0])
-        detected = FitPolynomial.sanity_check(ploty, left_fit, right_fit)
-        if not detected:
-            left_fit, right_fit = left_fit_prev, right_fit_prev
-
+        self.ploty = np.linspace(0, self.img_shape[0] - 1, self.img_shape[0])
         try:
-            left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
-            right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
+            self.left_fitx = self.left_fit[0] * self.ploty ** 2 + self.left_fit[1] * self.ploty + self.left_fit[2]
+            self.right_fitx = self.right_fit[0] * self.ploty ** 2 + self.right_fit[1] * self.ploty + self.right_fit[2]
         except TypeError:
             # Avoids an error if `left` and `right_fit` are still none or incorrect
             print('The function failed to fit a line!')
-            left_fitx = 1 * ploty ** 2 + 1 * ploty
-            right_fitx = 1 * ploty ** 2 + 1 * ploty
-
-        return left_fitx, right_fitx, left_fit, right_fit, ploty, detected
-
-    @staticmethod
-    def measure_real_curvature(ploty, leftx, rightx):
-        """
-        Calculates the curvature of polynomial functions in meters.
-        """
-        # Define conversions in x and y from pixels space to meters
-        ym_per_pix = 30 / 720  # meters per pixel in y dimension
-        xm_per_pix = 3.7 / 700  # meters per pixel in x dimension
-
-        left_fit_cr = np.polyfit(ploty * ym_per_pix, leftx * xm_per_pix, 2)
-        right_fit_cr = np.polyfit(ploty * ym_per_pix, rightx * xm_per_pix, 2)
-
-        # Define y-value where we want radius of curvature
-        # We'll choose the maximum y-value, corresponding to the bottom of the image
-        y_eval = np.max(ploty)
-
-        # Calculation of R_curve (radius of curvature)
-        left_curverad = ((1 + (2 * left_fit_cr[0] * y_eval * ym_per_pix +
-                               left_fit_cr[1]) ** 2) ** 1.5) / np.absolute(2 * left_fit_cr[0])
-        right_curverad = ((1 + (2 * right_fit_cr[0] * y_eval * ym_per_pix +
-                                right_fit_cr[1]) ** 2) ** 1.5) / np.absolute(2 * right_fit_cr[0])
-
-        print(left_curverad, right_curverad)
-
-        return (left_curverad + right_curverad)/2
-
-    @staticmethod
-    def sanity_check(ploty, left_fit, right_fit):
-        detected = False
-        y_eval = np.max(ploty)
-        leftx = left_fit[0] * y_eval ** 2 + left_fit[1] * y_eval + left_fit[2]
-        rightx = right_fit[0] * y_eval ** 2 + right_fit[1] * y_eval + right_fit[2]
-        distance_lower = np.abs(rightx - leftx)
-        distance_upper = np.abs(right_fit[2] - left_fit[2])
-
-        # print('a/b = ', left_fit[0]/right_fit[0], left_fit[1]/right_fit[1], left_fit[2]/right_fit[2])
-        # print('a/b = ', left_fit[0] / right_fit[0], left_fit[1] / right_fit[1], left_fit[2] / right_fit[2])
-        print(distance_lower)
-        print(distance_upper)
-
-        if min(distance_lower, distance_upper)/max(distance_lower, distance_upper) > 0.9:
-            detected = True
-
-        return detected
-
-    @staticmethod
-    def offset(ploty, img_shape, left_fit, right_fit):
-        """
-        Compute vehicle offset from center
-        """
-        xm_per_pix = 3.7 / 700  # meters per pixel in x dimension
-        y_eval = np.max(ploty)
-
-        leftx = left_fit[0] * y_eval ** 2 + left_fit[1] * y_eval + left_fit[2]
-        rightx = right_fit[0] * y_eval ** 2 + right_fit[1] * y_eval + right_fit[2]
-        distance = rightx - leftx
-        posx = leftx + distance // 2
-
-        return (img_shape[1] // 2 - posx)*xm_per_pix
+            self.left_fitx = 1 * self.ploty ** 2 + 1 * self.ploty
+            self.right_fitx = 1 * self.ploty ** 2 + 1 * self.ploty

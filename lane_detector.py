@@ -12,64 +12,48 @@ from camera_calibration import CameraCalibration
 
 
 class LaneDetector:
-
-    def __init__(self, thresh, undis_param, ksize):
+    def __init__(self, thresh, undis_param, ksize, debug=False):
         self.s_thresh, self.sx_thresh, self.sy_thresh, self.m_thresh, self.d_thresh = thresh
         self.ksize = ksize
         self.undis_param = undis_param
         self._l_fit = None
         self._r_fit = None
+        self.debug = debug
 
     def process_set_of_images(self, in_folder, out_folder):
+        """
+        Main function to detect lanes on the set of images
+        """
         list_of_images = [f for f in os.listdir(in_folder) if f.endswith('.jpg')]
-
-        in_folder = '/Users/bogdankovalchuk/Documents/Study/Autonomous_Driving/Udacity_Self_Driving_Car_Engineer_nd013/CarND-Advanced-Lane-Lines/out_test_video_frames/'
-        list_of_images = []
-        for i in range(510, 570):
-            list_of_images.append(str(i)+'.jpg')
 
         for i, image_file_name in enumerate(list_of_images):
             image = mpimg.imread(in_folder + image_file_name)
-            out_image, left_fit, right_fit = self._detect_lane(image)
+            out_image, _, _, _, _ = self._detect_lane(image)
 
             # Save images to file
             out_file = out_folder + image_file_name
             mpimg.imsave(out_file, out_image)
 
     def process_video(self, test_video, out_video):
+        """
+        Main function to detect lanes on the video file
+        """
         clip = VideoFileClip(test_video)
         processed_clip = clip.fl_image(self._process_frame)
         processed_clip.write_videofile(out_video, audio=False)
 
-    def process_image_frames(self):
-        import cv2
-        test_video = "test_videos/project_video.mp4"
-        out_folder = os.getcwd() + "/out_test_video_frames_res/"
-
-        vidcap = cv2.VideoCapture(test_video)
-        success = True
-        count = 0
-        min_, max_ = 510, 2000
-        while success:
-            if min_ <= count <= max_:
-                success, image = vidcap.read()
-                out_image = self._process_frame(image)
-                print(count)
-                # Save images to file
-                out_file = out_folder + str(count) + '.jpg'
-                # mpimg.imsave(out_file, out_image)
-                cv2.imwrite(out_file, out_image)  # save frame as JPEG file
-            success, image = vidcap.read()
-            if count > max_:
-                break
-
-            count += 1
-
     def _process_frame(self, image):
-        out_image,  self._l_fit, self._r_fit = self._detect_lane(image, left_fit=self._l_fit, right_fit=self._r_fit)
+        out_image,  self._l_fit, self._r_fit, curvature, offset = self._detect_lane(image, self._l_fit, self._r_fit)
+        curvature_text = f"Radius of curvature = {int(curvature)}(m)"
+        cv2.putText(out_image,  curvature_text, (10, 50), cv2.FONT_HERSHEY_PLAIN, 2.5, (255, 255, 255), 2, cv2.LINE_AA)
+
+        side = ('right' if offset < 0 else 'left')
+        offset_text = f"Vehicle is {abs(round(offset, 2))}m {side} of center"
+        cv2.putText(out_image, offset_text, (10, 90), cv2.FONT_HERSHEY_PLAIN, 2.5, (255, 255, 255), 2, cv2.LINE_AA)
+
         return out_image
 
-    def _detect_lane(self, image, left_fit=None, right_fit=None):
+    def _detect_lane(self, image, left_fit_prev=None, right_fit_prev=None):
         # Undistort image
         mtx, dist = self.undis_param
         undist = cv2.undistort(image, mtx, dist, None, mtx)
@@ -82,18 +66,32 @@ class LaneDetector:
         transform = PerspectiveTransform(undist_binary)
         binary_warped = transform.warp()
 
-        # Find pixels of left and right lane markers
+        # Find left and right lane markers polynomial
         polyfit = FitPolynomial(binary_warped)
-        left_fitx, right_fitx, left_fit, right_fit, ploty, detected = polyfit.fit_polynomial(left_fit, right_fit)
+        left_fit, right_fit = polyfit.fit_polynomial(left_fit_prev, right_fit_prev)
 
-
-        # curvature = FitPolynomial.measure_real_curvature(ploty, left_fitx, right_fitx)
-        # offset_ = FitPolynomial.offset(ploty, image.shape, left_fit, right_fit)
         # Warp image with lanes back
-        # print(curvature, offset_)
-        out_image = transform.warp_back(undist, ploty, left_fitx, right_fitx)
+        out_image = transform.warp_back(undist, polyfit)
 
-        return out_image, left_fit, right_fit
+        # Curvature and offset
+        curvature = polyfit.curvature()
+        offset = polyfit.offset()
+
+        if self.debug:
+            image_with_dst = image.copy()
+            cv2.polylines(image_with_dst, np.int32([transform.get_src()]), isClosed=True, color=(255, 0, 0), thickness=3)
+
+            self.plt = plt
+            f, (ax1, ax2) = plt.subplots(1, 2, figsize=(24, 9))
+            f.tight_layout()
+            ax1.imshow(image_with_dst, cmap='gray')
+            ax1.set_title('Original Image', fontsize=50)
+            ax2.imshow(binary_warped, cmap='gray')
+            ax2.set_title('Undistorted and Warped Image', fontsize=50)
+            self.plt.subplots_adjust(left=0., right=1, top=0.9, bottom=0.)
+            self.plt.show()
+
+        return out_image, left_fit, right_fit, curvature, offset
 
 
 if __name__ == "__main__":
@@ -102,39 +100,28 @@ if __name__ == "__main__":
 
     # Threshold parameters
     ksize = 3  # Sobel kernel size
-    s_thresh = (170, 255)
-    sx_thresh = (20, 100)
-    sy_thresh = (20, 255)
-    m_thresh = (30, 100)
+    s_thresh_img = (170, 255)
+    s_thresh_vid = (80, 200)
+    sx_thresh = (20, 200)
+    sy_thresh = (20, 200)
+    m_thresh = (30, 120)
     d_thresh = (0.7, 1.3)
-    thresh = s_thresh, sx_thresh, sy_thresh, m_thresh, d_thresh
 
-    # # Input/output folders of test images
-    # in_folder = os.getcwd() + "/test_images/"
-    # out_folder = os.getcwd() + "/output_images/"
-    #
-    # # Detect lanes on test images and write to out folder
-    # lane_detector = LaneDetector(thresh, undis_param, ksize)
-    # lane_detector.process_set_of_images(in_folder, out_folder)
+    # Input/output folders of test images
+    in_folder = os.getcwd() + "/test_images/"
+    out_folder = os.getcwd() + "/output_images/"
 
+    # Detect lanes on test images and write to out folder
+    debug_img = False
+    thresh_img = s_thresh_img, sx_thresh, sy_thresh, m_thresh, d_thresh
+    lane_detector_img = LaneDetector(thresh_img, undis_param, ksize, debug_img)
+    lane_detector_img.process_set_of_images(in_folder, out_folder)
+
+    # Input/output folders of test video
     test_video = os.getcwd() + "/test_videos/project_video.mp4"
-    out_video = os.getcwd() + "/output_images/out_vid.mp4"
-    lane_detector = LaneDetector(thresh, undis_param, ksize)
-    # lane_detector.process_video(test_video, out_video)
+    out_video = os.getcwd() + "/output_video/out_vid.mp4"
 
-    lane_detector.process_image_frames()
-
-    # in_folder = 'out_test_video_frames/'
-    # out_folder = os.getcwd() + "/out_test_video_frames_res/"
-    # list_of_images = list()
-    # for i in range(200):
-    #     list_of_images.append(str(i) + '.jpg')
-    #
-    # f, (ax1, ax2) = plt.subplots(1, 2, figsize=(24, 9))
-    # f.tight_layout()
-    # ax1.imshow(binary_warped, cmap='gray')
-    # ax1.set_title('Original Image', fontsize=50)
-    # ax2.imshow(undist_binary, cmap='gray')
-    # ax2.set_title('Thresholded S', fontsize=50)
-    # plt.subplots_adjust(left=0., right=1, top=0.9, bottom=0.)
-    # plt.show()
+    # Detect lanes on test video and write to out folder
+    thresh_vid = s_thresh_vid, sx_thresh, sy_thresh, m_thresh, d_thresh
+    lane_detector_vid = LaneDetector(thresh_vid, undis_param, ksize)
+    lane_detector_vid.process_video(test_video, out_video)
